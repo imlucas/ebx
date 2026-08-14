@@ -1,0 +1,50 @@
+name: build
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref to build (defaults to the calling SHA)
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            slug: darwin-arm64
+          - os: ubuntu-24.04
+            slug: linux-x64
+          - os: windows-latest
+            slug: win32-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build (vendor + warm cache + cargo)
+        run: node scripts/build.mjs
+      - name: Smoke
+        shell: bash
+        run: bash scripts/smoke.sh
+      - name: Stage artifact
+        shell: bash
+        run: |
+          mkdir -p stage
+          if [ -f target/release/ebx.exe ]; then
+            cp target/release/ebx.exe "stage/ebx-${{ matrix.slug }}.exe"
+          else
+            cp target/release/ebx "stage/ebx-${{ matrix.slug }}"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ebx-${{ matrix.slug }}
+          path: stage/*
+          if-no-files-found: error

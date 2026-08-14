@@ -1,0 +1,125 @@
+name: update-watch
+
+# Keeps the vendored electron-builder current. Self-contained test-then-merge:
+# a GITHUB_TOKEN-created PR triggers no other workflows, so this workflow runs
+# the full build matrix itself against the bump branch, merges only on green,
+# and publishes a release from the binaries it already built and smoked.
+# New MAJORS are left as an open PR for human review.
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    outputs:
+      new_version: ${{ steps.compare.outputs.new_version }}
+      is_major: ${{ steps.compare.outputs.is_major }}
+      branch: ${{ steps.compare.outputs.branch }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - id: compare
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # One open update PR at a time.
+          if [ -n "$(gh pr list --state open --label ebx-update --json number --jq '.[].number')" ]; then
+            echo "open update PR exists; skipping"
+            echo "new_version=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          LATEST=$(npm view electron-builder version)
+          CURRENT=$(node -p "require('./VENDOR_VERSIONS.json')['electron-builder']")
+          echo "current=$CURRENT latest=$LATEST"
+          if [ "$LATEST" = "$CURRENT" ]; then
+            echo "new_version=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          IS_MAJOR=$(node -p "Number('$LATEST'.split('.')[0]) > Number('$CURRENT'.split('.')[0])")
+          echo "new_version=$LATEST" >> "$GITHUB_OUTPUT"
+          echo "is_major=$IS_MAJOR" >> "$GITHUB_OUTPUT"
+          echo "branch=ebx-update-$LATEST" >> "$GITHUB_OUTPUT"
+
+  bump:
+    needs: check
+    if: needs.check.outputs.new_version != ''
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Push bump branch and open PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEW_VERSION: ${{ needs.check.outputs.new_version }}
+          BRANCH: ${{ needs.check.outputs.branch }}
+          IS_MAJOR: ${{ needs.check.outputs.is_major }}
+        run: |
+          set -euo pipefail
+          git config user.name "ebx-update-watch"
+          git config user.email "actions@github.com"
+          git checkout -b "$BRANCH"
+          node -e "
+            const fs = require('fs');
+            const pins = JSON.parse(fs.readFileSync('VENDOR_VERSIONS.json', 'utf8'));
+            pins['electron-builder'] = process.env.NEW_VERSION;
+            fs.writeFileSync('VENDOR_VERSIONS.json', JSON.stringify(pins, null, 2) + '\n');
+          "
+          git commit -am "Vendor electron-builder $NEW_VERSION"
+          git push origin "$BRANCH"
+          gh label create ebx-update --force --description "automated vendor bump" --color 1d76db
+          if [ "$IS_MAJOR" = "true" ]; then
+            BODY="New MAJOR of electron-builder. Held for human review — check the release notes for breaking changes, then merge manually; the release workflow can be dispatched afterwards."
+          else
+            BODY="Automated vendor bump. This workflow run builds and smokes the full matrix against this branch and merges + releases only if everything passes."
+          fi
+          gh pr create --head "$BRANCH" --label ebx-update \
+            --title "Vendor electron-builder $NEW_VERSION" --body "$BODY"
+
+  build:
+    needs: [check, bump]
+    if: needs.check.outputs.new_version != '' && needs.check.outputs.is_major != 'true'
+    uses: ./.github/workflows/build.yml
+    with:
+      ref: ${{ needs.check.outputs.branch }}
+
+  merge-and-release:
+    needs: [check, build]
+    if: needs.check.outputs.new_version != '' && needs.check.outputs.is_major != 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Merge PR and publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEW_VERSION: ${{ needs.check.outputs.new_version }}
+          BRANCH: ${{ needs.check.outputs.branch }}
+        run: |
+          set -euo pipefail
+          gh pr merge "$BRANCH" --squash --delete-branch
+          cd artifacts
+          shasum -a 256 ebx-* > SHA256SUMS
+          cd ..
+          TAG="v$NEW_VERSION-ebx.0"
+          gh release create "$TAG" artifacts/* \
+            --target main \
+            --title "$TAG" \
+            --notes "Automated vendor bump to electron-builder $NEW_VERSION. Binaries built and smoke-tested on macos-14, ubuntu-24.04, and windows-latest before this release was cut. Verify with SHA256SUMS."

@@ -1,0 +1,18 @@
+[package]
+name = "ebx"
+version = "0.1.0"
+edition = "2021"
+description = "electron-builder as a single downloadable binary"
+license = "MIT"
+
+[build-dependencies]
+zstd = { version = "0.13", features = ["zstdmt"] }
+
+[dependencies]
+zstd = "0.13"
+tar = "0.4"
+sha2 = "0.10"
+
+[profile.release]
+lto = true
+strip = true
