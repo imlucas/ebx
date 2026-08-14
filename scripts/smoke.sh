@@ -6,7 +6,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BIN="$ROOT/target/release/ebx"
 [ -f "$BIN.exe" ] && BIN="$BIN.exe"
-WARM_ELECTRON=$(node -p "require('$ROOT/VENDOR_VERSIONS.json')['warm-electron']")
+# Relative require: Git Bash $ROOT is a POSIX path Windows node can't resolve.
+WARM_ELECTRON=$(cd "$ROOT" && node -p "require('./VENDOR_VERSIONS.json')['warm-electron']")
 
 FIXTURE=$(mktemp -d)
 trap 'rm -rf "$FIXTURE"' EXIT

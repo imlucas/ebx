@@ -73,7 +73,12 @@ fs.mkdirSync(path.join(fixture, 'src'), { recursive: true });
 fs.writeFileSync(path.join(fixture, 'package.json'), JSON.stringify({ name: 'warm', version: '1.0.0', private: true, main: 'src/main.js' }));
 fs.writeFileSync(path.join(fixture, 'src', 'main.js'), "const {app}=require('electron');app.whenReady().then(()=>app.quit());\n");
 const cli = path.join(vendor, 'node_modules', 'electron-builder', 'cli.js');
-const targets = plat === 'win32' ? ['--win', 'nsis'] : ['--win', 'nsis', '--linux', 'AppImage'];
+// Per-host warm targets: NSIS-from-linux needs wine (upstream signs elevate.exe
+// via signtool there), so linux warms only what linux builds offline.
+const targets =
+  plat === 'win32' ? ['--win', 'nsis']
+  : plat === 'linux' ? ['--linux', 'AppImage']
+  : ['--win', 'nsis', '--linux', 'AppImage'];
 console.log(`[vendor] warming tool cache via real build: ${targets.join(' ')}`);
 run(process.execPath, [
   cli, ...targets, '--x64',

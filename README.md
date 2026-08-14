@@ -94,6 +94,10 @@ New electron-builder majors are held as an open PR for human review.
 - **Code signing paths are not exercised end-to-end** — `ebx fetch
   --wincodesign` warms the toolset and nothing in signing resolves differently,
   but no signed build has been produced through ebx yet.
+- **Windows-installer builds from Linux need wine on the system** (upstream signs
+  elevate.exe via signtool-under-wine there; macOS uses a native path, so
+  NSIS-from-mac works out of the box). The Linux binary embeds the AppImage
+  toolchain only.
 - **mac x64 has no prebuilt binary** (no free Intel runners); build from source
   on an Intel Mac.
 - **Native module rebuilds from source** still need a compiler toolchain on the
