@@ -31,9 +31,15 @@ jobs:
           node-version: 22
       - name: Build (vendor + warm cache + cargo)
         run: node scripts/build.mjs
+      - name: Unit tests (launcher)
+        shell: bash
+        run: VENDOR_TAR=$PWD/build/vendor.tar EBX_META=test cargo test --release
       - name: Smoke
         shell: bash
         run: bash scripts/smoke.sh
+      - name: Differential vs stock electron-builder
+        shell: bash
+        run: bash scripts/differential.sh
       - name: Build mac universal (second slice + lipo)
         if: runner.os == 'macOS'
         run: node scripts/universal-mac.mjs

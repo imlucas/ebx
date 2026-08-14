@@ -153,7 +153,7 @@ fn main() {
             // Fork builds bake default args (electronDist/electronVersion etc.);
             // they go first so anything the user passes overrides them.
             if let Ok(defaults) = std::fs::read_to_string(dest.join("ebx").join("default-args")) {
-                cmd.args(defaults.lines().filter(|l| !l.trim().is_empty()));
+                cmd.args(parse_default_args(&defaults));
             }
             cmd.args(&args);
         }
@@ -167,4 +167,38 @@ fn main() {
 
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+// Fork default-args file: one arg per line, blanks ignored (no JSON so the
+// launcher needs no parser).
+fn parse_default_args(raw: &str) -> Vec<&str> {
+    raw.lines().map(str::trim).filter(|l| !l.is_empty()).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hex_is_lowercase_and_padded() {
+        assert_eq!(hex(&[0x00, 0x0f, 0xff]), "000fff");
+        assert_eq!(hex(&[]), "");
+    }
+
+    #[test]
+    fn default_args_skip_blanks_and_trim() {
+        let raw = "-c.electronVersion=37.2.4\n\n  -c.electronDist=dist  \n";
+        assert_eq!(
+            parse_default_args(raw),
+            vec!["-c.electronVersion=37.2.4", "-c.electronDist=dist"]
+        );
+        assert!(parse_default_args("\n \n").is_empty());
+    }
+
+    #[test]
+    fn cache_root_honors_override() {
+        std::env::set_var("EBX_CACHE", "/tmp/ebx-test-cache");
+        assert_eq!(cache_root(), PathBuf::from("/tmp/ebx-test-cache"));
+        std::env::remove_var("EBX_CACHE");
+    }
 }
