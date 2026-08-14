@@ -30,7 +30,9 @@ const forkConfig = fs.existsSync(configPath)
 if (forkConfig['electron-builder']) pins['electron-builder'] = forkConfig['electron-builder'];
 
 const plat = process.platform; // darwin | linux | win32
-const arch = process.arch; // arm64 | x64
+// EBX_TARGET_ARCH allows cross-arch vendoring on macOS via Rosetta (the warm
+// build runs the downloaded target-arch node, so toolset detection follows).
+const arch = process.env.EBX_TARGET_ARCH || process.arch; // arm64 | x64
 const run = (cmd, args, opts = {}) =>
   execFileSync(cmd, args, { stdio: 'inherit', ...opts });
 
@@ -90,7 +92,11 @@ const targets =
   : plat === 'linux' ? ['--linux', 'AppImage']
   : ['--win', 'nsis', '--linux', 'AppImage'];
 console.log(`[vendor] warming tool cache via real build: ${targets.join(' ')}`);
-run(process.execPath, [
+// Warm with the VENDORED node, not the host's — the shipped combination is
+// what gets proven, and under EBX_TARGET_ARCH the target-arch node makes
+// toolset arch detection match the target (Rosetta runs it on mac).
+const warmNode = plat === 'win32' ? path.join(rt, 'node.exe') : path.join(rt, 'bin', 'node');
+run(warmNode, [
   cli, ...targets, '--x64',
   `-c.electronVersion=${pins['warm-electron']}`,
   '-c.appId=dev.ebx.warm', '-c.productName=Warm',

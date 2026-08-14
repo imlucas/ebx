@@ -19,8 +19,10 @@ if (!artifactsDir || !version) {
 }
 
 const PLATFORMS = {
-  'darwin-arm64': { os: ['darwin'], cpu: ['arm64'], file: 'ebx-darwin-arm64', bin: 'ebx' },
-  'darwin-x64': { os: ['darwin'], cpu: ['x64'], file: 'ebx-darwin-x64', bin: 'ebx' },
+  // Both darwin packages prefer the universal binary when the release has one
+  // (each lipo slice embeds its own arch's payload).
+  'darwin-arm64': { os: ['darwin'], cpu: ['arm64'], file: 'ebx-darwin-universal', fallback: 'ebx-darwin-arm64', bin: 'ebx' },
+  'darwin-x64': { os: ['darwin'], cpu: ['x64'], file: 'ebx-darwin-universal', fallback: 'ebx-darwin-x64', bin: 'ebx' },
   'linux-x64': { os: ['linux'], cpu: ['x64'], file: 'ebx-linux-x64', bin: 'ebx' },
   'linux-arm64': { os: ['linux'], cpu: ['arm64'], file: 'ebx-linux-arm64', bin: 'ebx' },
   'win32-x64': { os: ['win32'], cpu: ['x64'], file: 'ebx-win32-x64.exe', bin: 'ebx.exe' },
@@ -31,7 +33,8 @@ fs.rmSync(out, { recursive: true, force: true });
 
 const optional = {};
 for (const [key, p] of Object.entries(PLATFORMS)) {
-  const src = path.join(artifactsDir, p.file);
+  let src = path.join(artifactsDir, p.file);
+  if (!fs.existsSync(src) && p.fallback) src = path.join(artifactsDir, p.fallback);
   if (!fs.existsSync(src)) continue; // package only what this release built
   const dir = path.join(out, `ebx-bin-${key}`);
   fs.mkdirSync(dir, { recursive: true });

@@ -34,6 +34,9 @@ jobs:
       - name: Smoke
         shell: bash
         run: bash scripts/smoke.sh
+      - name: Build mac universal (second slice + lipo)
+        if: runner.os == 'macOS'
+        run: node scripts/universal-mac.mjs
       - name: Stage artifact
         shell: bash
         run: |
@@ -42,6 +45,9 @@ jobs:
             cp target/release/ebx.exe "stage/ebx-${{ matrix.slug }}.exe"
           else
             cp target/release/ebx "stage/ebx-${{ matrix.slug }}"
+          fi
+          if [ -f target/ebx-darwin-universal ]; then
+            cp target/ebx-darwin-universal stage/ebx-darwin-universal
           fi
       - uses: actions/upload-artifact@v4
         with:
