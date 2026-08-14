@@ -58,6 +58,20 @@ for (const version of electrons) {
 if (winCodeSign) {
   const { wincodesignChecksums } = require('app-builder-lib/out/toolsets/windows');
   const { getBinFromUrl } = require('app-builder-lib/out/binDownload');
+  // The actual signing path still reaches for the LEGACY winCodeSign-2.6.0
+  // archive (observed empirically: a CSC_LINK NSIS build from mac downloaded it
+  // even with win-codesign@1.1.0 warmed) — warm it via upstream's own helper.
+  try {
+    const { downloadBuilderToolset } = require('app-builder-lib/out/util/electronGet');
+    console.log('[ebx fetch] warming legacy winCodeSign-2.6.0');
+    await downloadBuilderToolset({
+      releaseName: 'winCodeSign-2.6.0',
+      filenameWithExt: 'winCodeSign-2.6.0.7z',
+      checksums: { 'winCodeSign-2.6.0.7z': 'cdaec7154dda7cc31f88d886e2489379a0625a737d610b5ae7f62a12f16743a4' },
+    });
+  } catch (e) {
+    console.warn(`[ebx fetch] legacy winCodeSign warm failed (${e.message}); continuing`);
+  }
   const versions = Object.keys(wincodesignChecksums).filter(v => v !== '0.0.0').sort();
   const version = versions[versions.length - 1];
   const files = wincodesignChecksums[version];

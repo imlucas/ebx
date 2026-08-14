@@ -131,9 +131,28 @@ fn main() {
             cmd.arg(dest.join("node_modules").join("electron-builder").join("install-app-deps.js"))
                 .args(&args[1..]);
         }
+        Some("licenses") => {
+            let manifest = dest.join("ebx").join("THIRD-PARTY.md");
+            match std::fs::read_to_string(&manifest) {
+                Ok(text) => {
+                    println!("{text}");
+                    eprintln!("\n[ebx] manifest file: {}", manifest.display());
+                    return;
+                }
+                Err(e) => {
+                    eprintln!("[ebx] no third-party manifest in this build: {e}");
+                    std::process::exit(1);
+                }
+            }
+        }
         _ => {
-            cmd.arg(dest.join("node_modules").join("electron-builder").join("cli.js"))
-                .args(&args);
+            cmd.arg(dest.join("node_modules").join("electron-builder").join("cli.js"));
+            // Fork builds bake default args (electronDist/electronVersion etc.);
+            // they go first so anything the user passes overrides them.
+            if let Ok(defaults) = std::fs::read_to_string(dest.join("ebx").join("default-args")) {
+                cmd.args(defaults.lines().filter(|l| !l.trim().is_empty()));
+            }
+            cmd.args(&args);
         }
     }
 

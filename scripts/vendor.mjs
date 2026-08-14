@@ -19,6 +19,16 @@ const pins = JSON.parse(fs.readFileSync(path.join(root, 'VENDOR_VERSIONS.json'),
 const build = path.join(root, 'build');
 const vendor = path.join(build, 'vendor');
 
+// Fork support: an optional config (EBX_VENDOR_CONFIG or ./vendor.config.json)
+// lets a downstream repo brand its ebx build, pin its own electron-builder,
+// and bake in default CLI args (e.g. -c.electronVersion / -c.electronDist
+// pointing at the fork's sidecar dist). See docs/FORKS.md.
+const configPath = process.env.EBX_VENDOR_CONFIG || path.join(root, 'vendor.config.json');
+const forkConfig = fs.existsSync(configPath)
+  ? JSON.parse(fs.readFileSync(configPath, 'utf8'))
+  : {};
+if (forkConfig['electron-builder']) pins['electron-builder'] = forkConfig['electron-builder'];
+
 const plat = process.platform; // darwin | linux | win32
 const arch = process.arch; // arm64 | x64
 const run = (cmd, args, opts = {}) =>
@@ -88,9 +98,81 @@ run(process.execPath, [
 // Raw archives are re-downloadable; only the extracted toolsets matter.
 fs.rmSync(path.join(ebCache, 'downloads'), { recursive: true, force: true });
 
-// 4. The fetch helper rides along.
+// 4. The fetch helper rides along, plus fork default args if configured.
 fs.mkdirSync(path.join(vendor, 'ebx'), { recursive: true });
 fs.copyFileSync(path.join(root, 'scripts', 'fetch.mjs'), path.join(vendor, 'ebx', 'fetch.mjs'));
+if (Array.isArray(forkConfig.defaultArgs) && forkConfig.defaultArgs.length > 0) {
+  // One arg per line; the launcher prepends these so user args override them.
+  fs.writeFileSync(path.join(vendor, 'ebx', 'default-args'), forkConfig.defaultArgs.join('\n') + '\n');
+  console.log(`[vendor] baked default args: ${forkConfig.defaultArgs.join(' ')}`);
+}
+
+// 4b. Third-party license manifest: every vendored npm package, the Node
+// runtime, and the pre-warmed toolsets. `ebx licenses` prints this file.
+console.log('[vendor] collecting third-party licenses');
+const entries = [];
+const texts = [];
+const walk = dir => {
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (!e.isDirectory()) continue;
+    const p = path.join(dir, e.name);
+    if (e.name.startsWith('@')) { walk(p); continue; }
+    const pj = path.join(p, 'package.json');
+    if (fs.existsSync(pj)) {
+      try {
+        const m = JSON.parse(fs.readFileSync(pj, 'utf8'));
+        if (m.name && m.version) {
+          entries.push({ name: m.name, version: m.version, license: m.license || m.licenses?.[0]?.type || 'UNKNOWN' });
+          for (const lf of ['LICENSE', 'LICENSE.md', 'LICENSE.txt', 'LICENCE', 'license']) {
+            const lp = path.join(p, lf);
+            if (fs.existsSync(lp)) {
+              texts.push(`\n---\n\n## ${m.name}@${m.version}\n\n\`\`\`\n${fs.readFileSync(lp, 'utf8').trim()}\n\`\`\``);
+              break;
+            }
+          }
+        }
+      } catch { /* unparseable package.json — skip */ }
+    }
+    const nested = path.join(p, 'node_modules');
+    if (fs.existsSync(nested)) walk(nested);
+  }
+};
+walk(path.join(vendor, 'node_modules'));
+entries.sort((a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version));
+const seen = new Set();
+const unique = entries.filter(e => { const k = `${e.name}@${e.version}`; if (seen.has(k)) return false; seen.add(k); return true; });
+const nodeLicense = path.join(unpack, distName, 'LICENSE');
+const manifest = [
+  '# ebx third-party notices',
+  '',
+  `This binary embeds and redistributes the following components. Generated at vendor time from the actual embedded tree (electron-builder ${pins['electron-builder']}, Node ${nv}).`,
+  '',
+  '## Node.js runtime',
+  '',
+  `Node.js v${nv}, official nodejs.org distribution (including npm). Its LICENSE file (aggregating Node's own third-party notices) is reproduced at the bottom of this document.`,
+  '',
+  '## Pre-warmed electron-builder toolsets',
+  '',
+  '| Toolset | License | Source |',
+  '|---|---|---|',
+  '| NSIS + NSIS resources | zlib/libpng | https://nsis.sourceforge.io |',
+  '| 7-Zip (7za) | GNU LGPL + unRAR restriction | https://www.7-zip.org |',
+  '| AppImage runtime/tools | MIT | https://github.com/AppImage |',
+  '',
+  'All fetched from https://github.com/electron-userland/electron-builder-binaries releases, unmodified.',
+  '',
+  `## npm packages (${unique.length})`,
+  '',
+  '| Package | Version | License |',
+  '|---|---|---|',
+  ...unique.map(e => `| ${e.name} | ${e.version} | ${e.license} |`),
+  '',
+  '# License texts',
+  ...texts,
+  '\n---\n\n## Node.js\n\n```\n' + (fs.existsSync(nodeLicense) ? fs.readFileSync(nodeLicense, 'utf8').trim() : 'see https://github.com/nodejs/node/blob/main/LICENSE') + '\n```',
+].join('\n');
+fs.writeFileSync(path.join(vendor, 'ebx', 'THIRD-PARTY.md'), manifest);
+console.log(`[vendor] third-party manifest: ${unique.length} packages, ${(manifest.length / 1024).toFixed(0)} KB`);
 
 // 5. Plain tarball; build.rs compresses it (no zstd CLI needed on any host).
 const out = path.join(build, 'vendor.tar');

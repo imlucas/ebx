@@ -17,9 +17,11 @@ if (!process.argv.includes('--skip-vendor') || !fs.existsSync(tarball)) {
 const cargo = JSON.parse(
   execFileSync('cargo', ['metadata', '--no-deps', '--format-version', '1'], { cwd: root }).toString()
 );
+const configPath = process.env.EBX_VENDOR_CONFIG || path.join(root, 'vendor.config.json');
+const forkConfig = fs.existsSync(configPath) ? JSON.parse(fs.readFileSync(configPath, 'utf8')) : {};
 const meta = [
-  `ebx ${cargo.packages[0].version}`,
-  `electron-builder ${pins['electron-builder']}`,
+  `ebx ${cargo.packages[0].version}${forkConfig.label ? ` (${forkConfig.label})` : ''}`,
+  `electron-builder ${forkConfig['electron-builder'] || pins['electron-builder']}`,
   `node ${pins.node}`,
   `host ${process.platform}-${process.arch}`,
 ].join('\n');

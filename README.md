@@ -39,6 +39,18 @@ nothing. One zstd tarball inside the binary holds:
 | `node-runtime/` | pinned official Node dist, npm included | machines need no Node; electron-builder's own `npm` spawns resolve here |
 | `eb-cache/` | NSIS, NSIS resources, AppImage tool, 7zip | warmed at vendor time by **running real builds**, so it is provably complete per platform |
 
+```mermaid
+flowchart LR
+    subgraph bin["ebx binary (~60 MB)"]
+        T["vendor.tar.zst<br/>node_modules + Node/npm + tool cache"]
+    end
+    T -->|"first run: extract ~2 s<br/>content-addressed by sha"| C["~/.cache/ebx/&lt;sha&gt;/"]
+    C --> N["embedded node"]
+    N --> E["upstream cli.js<br/>unmodified"]
+    E -->|"ELECTRON_BUILDER_CACHE"| K["embedded toolsets<br/>NSIS · AppImage · 7zip"]
+    E --> O[".app / .exe / .AppImage"]
+```
+
 On first run the tarball extracts (~2 s) to a content-addressed cache
 (`~/.cache/ebx/<sha>/`, `%LOCALAPPDATA%\ebx` on Windows; override with
 `EBX_CACHE`), then every invocation execs the real `electron-builder` CLI from
@@ -52,6 +64,26 @@ Still downloaded at runtime, by design (per-project version, too big to embed):
 - **Windows signing toolset** — pre-seed with `ebx fetch --wincodesign`
   (both use upstream's own download code and checksums)
 
+## Proven capabilities
+
+- **Hermetic builds** — with `-c.electronDist` pointing at a local Electron
+  dist, a full build ran to a booting artifact inside a network-denied macOS
+  sandbox (`sandbox-exec (deny network*)`). Note: the stock download path
+  revalidates checksums against GitHub even when the Electron zip is cached,
+  so a local dist is what makes builds truly offline. Recipe in
+  [docs/FORKS.md](docs/FORKS.md).
+- **Signed Windows installers from macOS** — a self-signed p12 via
+  `CSC_LINK`/`CSC_KEY_PASSWORD` signed the app exe, `elevate.exe`, and the
+  uninstaller; verified by parsing the PE certificate table (14.5 KB
+  signature blob carrying the cert subject vs zero in unsigned builds).
+- **Universal macOS apps** — `ebx --mac dir --universal` produced a booting
+  `x86_64 arm64` fat app (electron-builder downloads both arch dists and
+  merges them).
+- **Fork-branded builds** — a `vendor.config.json` bakes default args
+  (`electronVersion`/`electronDist`) and a label into the binary; a simulated
+  fork build packaged an app from a bare `ebx --dir`, hermetically. See
+  [docs/FORKS.md](docs/FORKS.md).
+
 ## Subcommands
 
 | Command | Does |
@@ -60,7 +92,8 @@ Still downloaded at runtime, by design (per-project version, too big to embed):
 | `ebx install-app-deps <args>` | passthrough to upstream's `install-app-deps` |
 | `ebx fetch --electron <v>` / `--wincodesign` | pre-seed the remaining runtime downloads for offline builds |
 | `ebx node <args>` | run the embedded Node (debugging escape hatch) |
-| `ebx --ebx-version` | launcher, electron-builder, and Node versions |
+| `ebx licenses` | print the third-party manifest generated from the actual embedded tree |
+| `ebx --ebx-version` | launcher, electron-builder, and Node versions (+ fork label) |
 
 ## Measured (2026-08-13, M-series macOS)
 
@@ -89,11 +122,16 @@ full matrix against the bump branch, merges only on green, and publishes a
 release from the binaries it already tested (`v<electron-builder>-ebx.<n>`).
 New electron-builder majors are held as an open PR for human review.
 
+Distribution channels (GitHub Releases live; npm scaffolded):
+[docs/DISTRIBUTION.md](docs/DISTRIBUTION.md).
+
 ## Honest gaps
 
-- **Code signing paths are not exercised end-to-end** — `ebx fetch
-  --wincodesign` warms the toolset and nothing in signing resolves differently,
-  but no signed build has been produced through ebx yet.
+- **macOS signing is exercised only up to the keychain step locally** — the
+  Windows signing path is proven (see above), but electron-builder's mac flow
+  imports the cert into a temp keychain, which fails in headless sessions
+  without keychain access; CI runners handle it, and CI carries the mac
+  signing smoke. No notarized build has gone through ebx yet.
 - **Windows-installer builds from Linux need wine on the system** (upstream signs
   elevate.exe via signtool-under-wine there; macOS uses a native path, so
   NSIS-from-mac works out of the box). The Linux binary embeds the AppImage
@@ -102,8 +140,6 @@ New electron-builder majors are held as an open PR for human review.
   on an Intel Mac.
 - **Native module rebuilds from source** still need a compiler toolchain on the
   machine — prebuild-first stacks (napi-rs) don't hit this.
-- **License aggregation**: the binary redistributes the npm tree and toolsets;
-  a bundled third-party license manifest (`ebx licenses`) is future work.
 - Rebuilding per electron-builder release means trusting this repo's CI as part
   of your supply chain; releases ship SHA256SUMS, and reproducing a binary
   locally from the same pins is one `node scripts/build.mjs` away.
