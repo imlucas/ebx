@@ -25,9 +25,10 @@ COMMON=(--publish never -c.electronVersion="$WARM_ELECTRON" -c.appId=dev.ebx.smo
 # Self-signed cert for the signing smokes (mac + windows).
 make_p12() {
   openssl req -x509 -newkey rsa:2048 -keyout "$FIXTURE/key.pem" -out "$FIXTURE/cert.pem" \
-    -days 2 -nodes -subj "/CN=ebx ci signing" -addext "extendedKeyUsage=codeSigning" 2>/dev/null
+    -days 2 -nodes -subj "/CN=ebx ci signing" -addext "extendedKeyUsage=codeSigning"
   openssl pkcs12 -export -out "$FIXTURE/cert.p12" -inkey "$FIXTURE/key.pem" \
-    -in "$FIXTURE/cert.pem" -passout pass:ebxci 2>/dev/null
+    -in "$FIXTURE/cert.pem" -passout pass:ebxci
+  echo "make_p12: ok"
 }
 
 # Structural signature check: the PE certificate table must be non-empty and
@@ -58,16 +59,28 @@ case "$(uname -s)" in
     CSC_LINK="file://$FIXTURE/cert.p12" CSC_KEY_PASSWORD=ebxci \
       "$BIN" --win nsis --x64 "${COMMON[@]}"
     assert_pe_signed dist/*.exe
-    # macOS codesign requires a TRUSTED identity (a bare self-signed cert shows
-    # as CSSMERR_TP_NOT_TRUSTED and electron-builder skips signing — observed on
-    # the first CI run). Trust it system-wide where passwordless sudo exists
-    # (CI runners); skip on dev machines.
+    # macOS codesign needs a TRUSTED identity resolvable from the keychain
+    # search list. CSC_LINK is the wrong tool for a self-signed CI cert: the
+    # trust lands in System.keychain while the private key sits in
+    # electron-builder's temp keychain, and codesign finds neither whole
+    # (observed: CSSMERR_TP_NOT_TRUSTED on run 1, "specified item could not be
+    # found in the keychain" on run 2). Canonical recipe instead: own keychain
+    # in the search list + admin-domain trust + -c.mac.identity. Needs
+    # passwordless sudo (CI runners); skipped on dev machines.
     if sudo -n true 2> /dev/null; then
+      KC="$FIXTURE/ebx-ci.keychain-db"
+      security create-keychain -p ebxci "$KC"
+      security unlock-keychain -p ebxci "$KC"
+      security set-keychain-settings -lut 1200 "$KC"
+      security import "$FIXTURE/cert.p12" -k "$KC" -P ebxci \
+        -T /usr/bin/codesign -T /usr/bin/security
+      security set-key-partition-list -S 'apple-tool:,apple:,codesign:' \
+        -s -k ebxci "$KC" > /dev/null
+      security list-keychains -d user -s "$KC" login.keychain-db
       sudo security add-trusted-cert -d -r trustRoot \
         -k /Library/Keychains/System.keychain "$FIXTURE/cert.pem"
       rm -rf dist
-      CSC_LINK="file://$FIXTURE/cert.p12" CSC_KEY_PASSWORD=ebxci \
-        "$BIN" --dir "${COMMON[@]}"
+      "$BIN" --dir "${COMMON[@]}" -c.mac.identity="ebx ci signing"
       codesign -dvv dist/mac*/SmokeApp.app 2>&1 | grep -q "ebx ci signing"
       echo "mac codesign identity verified"
     else
@@ -85,11 +98,16 @@ case "$(uname -s)" in
     test -f dist/win-unpacked/resources/app.asar
     "$BIN" --win nsis --x64 "${COMMON[@]}"
     ls dist/*.exe
-    # Native windows signing smoke (openssl ships with Git Bash).
+    # Native windows signing smoke (openssl ships with Git Bash). Windows node
+    # can't read a POSIX-path file:// URL, so hand CSC_LINK a native path.
     make_p12
     rm -rf dist
-    CSC_LINK="file://$FIXTURE/cert.p12" CSC_KEY_PASSWORD=ebxci \
+    P12="$FIXTURE/cert.p12"
+    command -v cygpath > /dev/null && P12="$(cygpath -m "$P12")"
+    echo "signing smoke: CSC_LINK=$P12"
+    CSC_LINK="$P12" CSC_KEY_PASSWORD=ebxci \
       "$BIN" --win nsis --x64 "${COMMON[@]}"
+    echo "signed build done"
     assert_pe_signed dist/*.exe
     ;;
 esac
