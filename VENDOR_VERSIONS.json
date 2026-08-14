@@ -1,5 +1,5 @@
 {
-  "electron-builder": "26.15.2",
+  "electron-builder": "26.15.3",
   "node": "22.23.2",
   "warm-electron": "37.2.4"
 }
