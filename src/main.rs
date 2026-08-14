@@ -127,6 +127,9 @@ fn main() {
         Some("fetch") => {
             cmd.arg(dest.join("ebx").join("fetch.mjs")).args(&args[1..]);
         }
+        Some("doctor") => {
+            cmd.arg(dest.join("ebx").join("doctor.mjs")).args(&args[1..]);
+        }
         Some("install-app-deps") => {
             cmd.arg(dest.join("node_modules").join("electron-builder").join("install-app-deps.js"))
                 .args(&args[1..]);

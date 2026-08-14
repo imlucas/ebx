@@ -28,8 +28,13 @@ make_p12() {
   # the leading-double-slash form suppresses that conversion on Windows.
   SUBJ="/CN=ebx ci signing"
   case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) SUBJ="//CN=ebx ci signing" ;; esac
+  # keyUsage=digitalSignature is required alongside the EKU — without it macOS
+  # codesign's policy filter rejects the identity as "Invalid Key Usage" and
+  # then reports it "not found" (observed on CI round 4).
   openssl req -x509 -newkey rsa:2048 -keyout "$FIXTURE/key.pem" -out "$FIXTURE/cert.pem" \
-    -days 2 -nodes -subj "$SUBJ" -addext "extendedKeyUsage=codeSigning"
+    -days 2 -nodes -subj "$SUBJ" \
+    -addext "keyUsage=critical,digitalSignature" \
+    -addext "extendedKeyUsage=codeSigning"
   openssl pkcs12 -export -out "$FIXTURE/cert.p12" -inkey "$FIXTURE/key.pem" \
     -in "$FIXTURE/cert.pem" -passout pass:ebxci
   echo "make_p12: ok"

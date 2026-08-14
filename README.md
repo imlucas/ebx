@@ -91,6 +91,7 @@ Still downloaded at runtime, by design (per-project version, too big to embed):
 | `ebx <args>` | passthrough to `electron-builder` CLI — full flag parity |
 | `ebx install-app-deps <args>` | passthrough to upstream's `install-app-deps` |
 | `ebx fetch --electron <v>` / `--wincodesign` | pre-seed the remaining runtime downloads for offline builds |
+| `ebx doctor` | will a build work on this box, for which targets — toolchain, caches, signing identities, wine/Rosetta, network |
 | `ebx node <args>` | run the embedded Node (debugging escape hatch) |
 | `ebx licenses` | print the third-party manifest generated from the actual embedded tree |
 | `ebx --ebx-version` | launcher, electron-builder, and Node versions (+ fork label) |

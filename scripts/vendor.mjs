@@ -107,6 +107,7 @@ fs.rmSync(path.join(ebCache, 'downloads'), { recursive: true, force: true });
 // 4. The fetch helper rides along, plus fork default args if configured.
 fs.mkdirSync(path.join(vendor, 'ebx'), { recursive: true });
 fs.copyFileSync(path.join(root, 'scripts', 'fetch.mjs'), path.join(vendor, 'ebx', 'fetch.mjs'));
+fs.copyFileSync(path.join(root, 'scripts', 'doctor.mjs'), path.join(vendor, 'ebx', 'doctor.mjs'));
 if (Array.isArray(forkConfig.defaultArgs) && forkConfig.defaultArgs.length > 0) {
   // One arg per line; the launcher prepends these so user args override them.
   fs.writeFileSync(path.join(vendor, 'ebx', 'default-args'), forkConfig.defaultArgs.join('\n') + '\n');
@@ -183,5 +184,5 @@ console.log(`[vendor] third-party manifest: ${unique.length} packages, ${(manife
 // 5. Plain tarball; build.rs compresses it (no zstd CLI needed on any host).
 const out = path.join(build, 'vendor.tar');
 fs.rmSync(out, { force: true });
-run('tar', ['-cf', out, '-C', vendor, 'node_modules', 'package.json', 'node-runtime', 'eb-cache', 'ebx']);
+run('tar', ['-cf', out, '-C', vendor, 'node_modules', 'package.json', 'node-runtime', 'eb-cache', 'ebx'], { env: { ...process.env, COPYFILE_DISABLE: '1' } });
 console.log(`[vendor] done: ${out} (${(fs.statSync(out).size / 1024 / 1024).toFixed(1)} MB)`);
