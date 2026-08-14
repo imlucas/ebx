@@ -76,6 +76,16 @@ jobs:
             pins['electron-builder'] = process.env.NEW_VERSION;
             fs.writeFileSync('VENDOR_VERSIONS.json', JSON.stringify(pins, null, 2) + '\n');
           "
+          # RFC 0001 (B1): the bump PR carries the refreshed vendor lockfile so the full
+          # transitive delta is reviewable in the diff — never silently embedded later.
+          mkdir -p /tmp/lockgen && cp VENDOR_VERSIONS.json /tmp/lockgen/ 2>/dev/null || true
+          node -e "
+            const fs = require('fs');
+            fs.writeFileSync('/tmp/lockgen/package.json', JSON.stringify({ name: 'ebx-vendor', private: true, dependencies: { 'electron-builder': process.env.NEW_VERSION } }));
+          "
+          (cd /tmp/lockgen && npm install --package-lock-only --no-audit --no-fund --omit=dev)
+          mkdir -p vendor && cp /tmp/lockgen/package-lock.json vendor/package-lock.json
+          git add vendor/package-lock.json
           git commit -am "Vendor electron-builder $NEW_VERSION"
           git push origin "$BRANCH"
           gh label create ebx-update --force --description "automated vendor bump" --color 1d76db
@@ -101,12 +111,19 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
           merge-multiple: true
+      # RFC 0001 (B4): build-provenance attestation on every released artifact — verify with
+      #   gh attestation verify <artifact> -R imlucas/ebx
+      - uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: artifacts/ebx-*
       - name: Merge PR and publish release
         env:
           GH_TOKEN: ${{ github.token }}

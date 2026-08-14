@@ -11,6 +11,8 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 jobs:
   build:
@@ -25,6 +27,11 @@ jobs:
         with:
           path: artifacts
           merge-multiple: true
+      # RFC 0001 (B4): build-provenance attestation on every released artifact — verify with
+      #   gh attestation verify <artifact> -R imlucas/ebx
+      - uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: artifacts/ebx-*
       - name: Checksums
         run: |
           cd artifacts

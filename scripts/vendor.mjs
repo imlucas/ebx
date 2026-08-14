@@ -45,7 +45,30 @@ fs.writeFileSync(
   path.join(vendor, 'package.json'),
   JSON.stringify({ name: 'ebx-vendor', private: true, dependencies: { 'electron-builder': pins['electron-builder'] } }, null, 2)
 );
-run('npm', ['install', '--no-audit', '--no-fund', '--omit=dev'], { cwd: vendor, shell: plat === 'win32' });
+// Reproducibility (RFC 0001, boundary B1): transitives must not float at vendor time. A
+// committed lockfile (vendor/package-lock.json) pins the ENTIRE embedded tree; npm ci
+// installs exactly it. The lockfile refreshes only through the update-watch bump PR (or a
+// deliberate local vendor run when the pin changed), where the delta is reviewable — never
+// silently on a scheduled rebuild.
+const lockDir = path.join(root, 'vendor');
+const lockFile = path.join(lockDir, 'package-lock.json');
+let lockUsable = false;
+if (fs.existsSync(lockFile)) {
+  try {
+    const locked = JSON.parse(fs.readFileSync(lockFile, 'utf8'));
+    lockUsable = locked.packages?.['node_modules/electron-builder']?.version === pins['electron-builder'];
+  } catch { /* corrupt lock — regenerate below */ }
+}
+if (lockUsable) {
+  fs.copyFileSync(lockFile, path.join(vendor, 'package-lock.json'));
+  console.log('[vendor] npm ci from committed vendor/package-lock.json');
+  run('npm', ['ci', '--no-audit', '--no-fund', '--omit=dev'], { cwd: vendor, shell: plat === 'win32' });
+} else {
+  console.log('[vendor] no matching lockfile — npm install, then writing vendor/package-lock.json back');
+  run('npm', ['install', '--no-audit', '--no-fund', '--omit=dev'], { cwd: vendor, shell: plat === 'win32' });
+  fs.mkdirSync(lockDir, { recursive: true });
+  fs.copyFileSync(path.join(vendor, 'package-lock.json'), lockFile);
+}
 
 // 2. Pinned Node runtime, verified against nodejs.org SHASUMS.
 const nv = pins.node;
