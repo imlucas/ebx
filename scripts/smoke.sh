@@ -18,7 +18,7 @@ EOF
 echo "const {app}=require('electron');app.whenReady().then(()=>{console.log('booted');app.quit();});" > "$FIXTURE/src/main.js"
 
 cd "$FIXTURE"
-COMMON=(-c.electronVersion="$WARM_ELECTRON" -c.appId=dev.ebx.smoke -c.productName=SmokeApp)
+COMMON=(--publish never -c.electronVersion="$WARM_ELECTRON" -c.appId=dev.ebx.smoke -c.productName=SmokeApp)
 
 "$BIN" --ebx-version
 
@@ -58,11 +58,21 @@ case "$(uname -s)" in
     CSC_LINK="file://$FIXTURE/cert.p12" CSC_KEY_PASSWORD=ebxci \
       "$BIN" --win nsis --x64 "${COMMON[@]}"
     assert_pe_signed dist/*.exe
-    rm -rf dist
-    CSC_LINK="file://$FIXTURE/cert.p12" CSC_KEY_PASSWORD=ebxci \
-      "$BIN" --dir "${COMMON[@]}"
-    codesign -dvv dist/mac*/SmokeApp.app 2>&1 | grep -q "ebx ci signing"
-    echo "mac codesign identity verified"
+    # macOS codesign requires a TRUSTED identity (a bare self-signed cert shows
+    # as CSSMERR_TP_NOT_TRUSTED and electron-builder skips signing — observed on
+    # the first CI run). Trust it system-wide where passwordless sudo exists
+    # (CI runners); skip on dev machines.
+    if sudo -n true 2> /dev/null; then
+      sudo security add-trusted-cert -d -r trustRoot \
+        -k /Library/Keychains/System.keychain "$FIXTURE/cert.pem"
+      rm -rf dist
+      CSC_LINK="file://$FIXTURE/cert.p12" CSC_KEY_PASSWORD=ebxci \
+        "$BIN" --dir "${COMMON[@]}"
+      codesign -dvv dist/mac*/SmokeApp.app 2>&1 | grep -q "ebx ci signing"
+      echo "mac codesign identity verified"
+    else
+      echo "skipping mac codesign smoke (no passwordless sudo to trust the test cert)"
+    fi
     ;;
   Linux)
     "$BIN" --dir "${COMMON[@]}"
