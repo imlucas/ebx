@@ -6,7 +6,7 @@ tree in any consuming repo.
 
 ```bash
 ebx --mac dmg          # it is electron-builder's own CLI, passed through
-ebx --win nsis --x64   # Windows installers build fine from macOS/Linux
+ebx --win nsis --x64   # Windows installers build fine from macOS (from Linux: wine needed)
 ebx --linux AppImage
 ```
 
