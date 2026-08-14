@@ -24,8 +24,12 @@ COMMON=(--publish never -c.electronVersion="$WARM_ELECTRON" -c.appId=dev.ebx.smo
 
 # Self-signed cert for the signing smokes (mac + windows).
 make_p12() {
+  # Git Bash (MSYS) rewrites "/CN=..." into "C:/Program Files/Git/CN=..." —
+  # the leading-double-slash form suppresses that conversion on Windows.
+  SUBJ="/CN=ebx ci signing"
+  case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) SUBJ="//CN=ebx ci signing" ;; esac
   openssl req -x509 -newkey rsa:2048 -keyout "$FIXTURE/key.pem" -out "$FIXTURE/cert.pem" \
-    -days 2 -nodes -subj "/CN=ebx ci signing" -addext "extendedKeyUsage=codeSigning"
+    -days 2 -nodes -subj "$SUBJ" -addext "extendedKeyUsage=codeSigning"
   openssl pkcs12 -export -out "$FIXTURE/cert.p12" -inkey "$FIXTURE/key.pem" \
     -in "$FIXTURE/cert.pem" -passout pass:ebxci
   echo "make_p12: ok"
@@ -77,8 +81,10 @@ case "$(uname -s)" in
       security set-key-partition-list -S 'apple-tool:,apple:,codesign:' \
         -s -k ebxci "$KC" > /dev/null
       security list-keychains -d user -s "$KC" login.keychain-db
+      security default-keychain -s "$KC"
       sudo security add-trusted-cert -d -r trustRoot \
         -k /Library/Keychains/System.keychain "$FIXTURE/cert.pem"
+      security find-identity -v -p codesigning "$KC"
       rm -rf dist
       "$BIN" --dir "${COMMON[@]}" -c.mac.identity="ebx ci signing"
       codesign -dvv dist/mac*/SmokeApp.app 2>&1 | grep -q "ebx ci signing"
